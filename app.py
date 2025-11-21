@@ -9,7 +9,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 
 # FREE local embedding model
-from langchain_community.embeddings import HuggingFaceInstructEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
+
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
@@ -23,9 +25,8 @@ llm = ChatOpenAI(
     api_key=OPENAI_API_KEY
 )
 
-# FREE embeddings (local model)
-embeddings = HuggingFaceInstructEmbeddings(
-    model_name="hkunlp/instructor-base"
+embeddings = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
 urls = []
