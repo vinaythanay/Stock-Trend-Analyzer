@@ -163,7 +163,10 @@ if query:
 
     # Retrieve relevant sections
     retriever = vectorstore.as_retriever()
-    docs = retriever.get_relevant_documents(query)
+    
+    # FIX: Use .invoke() instead of the deprecated/buggy .get_relevant_documents() 
+    # to fix the AttributeError for modern LangChain retrievers.
+    docs = retriever.invoke(query)
 
     context = "\n\n".join([d.page_content for d in docs])
 
