@@ -1,9 +1,8 @@
 streamlit
 langchain
-langchain-community
-langchain-openai
+langchain-google-genai
+google-generativeai
 langchain-text-splitters
-openai
 faiss-cpu
 unstructured
 python-dotenv
