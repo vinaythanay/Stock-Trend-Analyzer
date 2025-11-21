@@ -3,6 +3,7 @@ import time
 import pickle
 import streamlit as st
 from dotenv import load_dotenv
+from typing import List, Union
 
 # LangChain Imports (2025 safe versions)
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -56,38 +57,45 @@ llm = ChatOpenAI(
 embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
 
 # ----------------------------------------------------
-# Safe Embedding Function (Avoids Rate Limits and handles Auth errors)
+# Safe Embedding Function (Handles bulk documents and single queries)
 # ----------------------------------------------------
-def embed_with_retry(docs, max_attempts=5):
-    """Embeds documents with exponential backoff on retryable errors."""
+def embed_text_with_retry(text: Union[str, List[str]], max_attempts=5):
+    """
+    Embeds text (single string or list of strings) with exponential backoff 
+    on retryable errors (like RateLimitError).
+    """
     BASE_DELAY = 4 # Start with a longer delay to respect rate limits
+    is_list = isinstance(text, list)
+    
     for attempt in range(max_attempts):
         try:
-            return embeddings.embed_documents(docs)
+            if is_list:
+                # Bulk embedding for document chunks
+                return embeddings.embed_documents(text)
+            else:
+                # Single embedding for user query
+                return embeddings.embed_query(text)
         except AuthenticationError as e:
-            # If authentication fails, do not retry, just raise the specific error.
             status_container.error(f"❌ Critical Error: Authentication failed. Check your API key. Details: {e}")
             raise Exception("Authentication failed. Please check your OPENAI_API_KEY.")
         except RateLimitError as e:
-            # Handle rate limits specifically and safely with exponential backoff
             sleep_time = BASE_DELAY * (2 ** attempt) 
             status_container.warning(f"⚠️ Rate Limit Hit: Retrying in {sleep_time} seconds (Attempt {attempt+1}/{max_attempts}).")
-            # Print the full error to the console logs for detailed debugging
             print(f"Embedding attempt {attempt+1} failed with RateLimitError: {e}")
             time.sleep(sleep_time)
         except OpenAIError as e:
-            # Handle other transient API errors (e.g., API server down, bad request).
             sleep_time = BASE_DELAY * (2 ** attempt)
             status_container.warning(f"⚠️ OpenAI API Error: Retrying in {sleep_time} seconds (Attempt {attempt+1}/{max_attempts}).")
-            # Print the full error to the console logs for detailed debugging
             print(f"Embedding attempt {attempt+1} failed with general OpenAIError: {e}")
             time.sleep(sleep_time)
         except Exception as e:
-            # Catch unexpected non-API errors (e.g., network issues)
             status_container.error(f"❌ Unexpected Error: {e}")
             raise Exception(f"Unexpected error during embedding: {e}")
 
     raise Exception("Embedding failed after multiple retries. Check logs for details.")
+
+# Rename the original function call site for clarity
+embed_with_retry = embed_text_with_retry
 
 # ----------------------------------------------------
 # PROCESS URLS → BUILD VECTOR STORE
@@ -117,6 +125,7 @@ if process_url_clicked:
 
     text_list = [d.page_content for d in docs]
     try:
+        # Use the renamed/generalized retry function
         vecs = embed_with_retry(text_list)
     except Exception as e:
         # Stop processing if embedding failed critically
@@ -126,7 +135,6 @@ if process_url_clicked:
 
     status_container.info("📦 Building FAISS vector store...")
 
-    # We will use the correct method for LangChain's FAISS class:
     vectorstore = FAISS.from_documents(
         documents=docs,
         embedding=embeddings
@@ -161,12 +169,16 @@ if query:
         allow_dangerous_deserialization=True
     )
 
-    # Retrieve relevant sections
-    retriever = vectorstore.as_retriever()
-    
-    # FIX: Use .invoke() instead of the deprecated/buggy .get_relevant_documents() 
-    # to fix the AttributeError for modern LangChain retrievers.
-    docs = retriever.invoke(query)
+    # NEW: Embed the query manually using the safe retry function
+    try:
+        query_vector = embed_text_with_retry(query, max_attempts=3)
+    except Exception as e:
+        st.error(f"🛑 Failed to embed your question: {e}")
+        st.stop()
+
+    # Retrieve relevant sections by vector, bypassing the internal LangChain call
+    # that caused the crash. We use k=4 for a reasonable number of chunks.
+    docs = vectorstore.similarity_search_by_vector(query_vector, k=4)
 
     context = "\n\n".join([d.page_content for d in docs])
 
