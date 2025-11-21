@@ -60,6 +60,7 @@ embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
 # ----------------------------------------------------
 def embed_with_retry(docs, max_attempts=5):
     """Embeds documents with exponential backoff on retryable errors."""
+    BASE_DELAY = 4 # Start with a longer delay to respect rate limits
     for attempt in range(max_attempts):
         try:
             return embeddings.embed_documents(docs)
@@ -68,16 +69,15 @@ def embed_with_retry(docs, max_attempts=5):
             status_container.error(f"❌ Critical Error: Authentication failed. Check your API key. Details: {e}")
             raise Exception("Authentication failed. Please check your OPENAI_API_KEY.")
         except RateLimitError as e:
-            # Handle rate limits specifically and safely
-            sleep_time = 2 ** attempt
+            # Handle rate limits specifically and safely with exponential backoff
+            sleep_time = BASE_DELAY * (2 ** attempt) 
             status_container.warning(f"⚠️ Rate Limit Hit: Retrying in {sleep_time} seconds (Attempt {attempt+1}/{max_attempts}).")
             # Print the full error to the console logs for detailed debugging
             print(f"Embedding attempt {attempt+1} failed with RateLimitError: {e}")
             time.sleep(sleep_time)
         except OpenAIError as e:
             # Handle other transient API errors (e.g., API server down, bad request).
-            # We avoid relying on e.http_status here, which caused the previous crash.
-            sleep_time = 2 ** attempt
+            sleep_time = BASE_DELAY * (2 ** attempt)
             status_container.warning(f"⚠️ OpenAI API Error: Retrying in {sleep_time} seconds (Attempt {attempt+1}/{max_attempts}).")
             # Print the full error to the console logs for detailed debugging
             print(f"Embedding attempt {attempt+1} failed with general OpenAIError: {e}")
@@ -109,11 +109,11 @@ if process_url_clicked:
     status_container.info("✂️ Splitting text into chunks...")
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
-        chunk_overlap=100
+        chunk_overlap=20 # Reduced overlap from 100 to 20 to potentially reduce token count
     )
     docs = splitter.split_documents(data)
 
-    status_container.info("🧠 Creating embeddings (this may take 10–20 sec)...")
+    status_container.info("🧠 Creating embeddings (this may take longer now with retries)...")
 
     text_list = [d.page_content for d in docs]
     try:
@@ -186,4 +186,3 @@ Answer clearly and concisely:
     st.subheader("🔗 Sources")
     for d in docs:
         st.write(d.metadata.get("source", "Unknown source"))
-        
