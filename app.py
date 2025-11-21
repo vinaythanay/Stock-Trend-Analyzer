@@ -9,8 +9,8 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.document_loaders import UnstructuredURLLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-# Import specific error types for better handling
-from openai import OpenAIError, AuthenticationError 
+# Import specific error types for better handling, including RateLimitError
+from openai import OpenAIError, AuthenticationError, RateLimitError 
 
 # ----------------------------------------------------
 # Load Environment
@@ -67,12 +67,20 @@ def embed_with_retry(docs, max_attempts=5):
             # If authentication fails, do not retry, just raise the specific error.
             status_container.error(f"❌ Critical Error: Authentication failed. Check your API key. Details: {e}")
             raise Exception("Authentication failed. Please check your OPENAI_API_KEY.")
-        except OpenAIError as e:
-            # Handle rate limits or other transient API errors
+        except RateLimitError as e:
+            # Handle rate limits specifically and safely
             sleep_time = 2 ** attempt
-            status_container.warning(f"⚠️ OpenAI Error ({e.http_status or 'Unknown'}): Retrying in {sleep_time} seconds (Attempt {attempt+1}/{max_attempts}).")
+            status_container.warning(f"⚠️ Rate Limit Hit: Retrying in {sleep_time} seconds (Attempt {attempt+1}/{max_attempts}).")
             # Print the full error to the console logs for detailed debugging
-            print(f"Embedding attempt {attempt+1} failed with error: {e}")
+            print(f"Embedding attempt {attempt+1} failed with RateLimitError: {e}")
+            time.sleep(sleep_time)
+        except OpenAIError as e:
+            # Handle other transient API errors (e.g., API server down, bad request).
+            # We avoid relying on e.http_status here, which caused the previous crash.
+            sleep_time = 2 ** attempt
+            status_container.warning(f"⚠️ OpenAI API Error: Retrying in {sleep_time} seconds (Attempt {attempt+1}/{max_attempts}).")
+            # Print the full error to the console logs for detailed debugging
+            print(f"Embedding attempt {attempt+1} failed with general OpenAIError: {e}")
             time.sleep(sleep_time)
         except Exception as e:
             # Catch unexpected non-API errors (e.g., network issues)
@@ -118,20 +126,6 @@ if process_url_clicked:
 
     status_container.info("📦 Building FAISS vector store...")
 
-    # FAISS.from_embeddings expects a list of embedding vectors and their corresponding documents.
-    # The structure used here is slightly unusual for FAISS.from_embeddings.
-    # A cleaner approach is to use FAISS.from_documents directly, but since your
-    # original code uses this structure, let's adapt it to what LangChain expects.
-    # Since we manually created vecs, we should pass `text_list` and `vecs` to zip them up.
-    
-    # Reverting to the recommended standard way to create FAISS from documents:
-    # FAISS.from_documents handles splitting the text and calling the embedding
-    # model internally, but since you separated it, we need to pass documents.
-    
-    # The `vectorstore = FAISS.from_embeddings(...)` constructor requires 
-    # a list of vectors and a list of documents or texts. 
-    # The `vectorstore` expects a list of embeddings and the document objects for metadata.
-    
     # We will use the correct method for LangChain's FAISS class:
     vectorstore = FAISS.from_documents(
         documents=docs,
@@ -170,7 +164,6 @@ if query:
     # Retrieve relevant sections
     retriever = vectorstore.as_retriever()
     docs = retriever.get_relevant_documents(query)
-    
 
     context = "\n\n".join([d.page_content for d in docs])
 
@@ -193,3 +186,4 @@ Answer clearly and concisely:
     st.subheader("🔗 Sources")
     for d in docs:
         st.write(d.metadata.get("source", "Unknown source"))
+        
