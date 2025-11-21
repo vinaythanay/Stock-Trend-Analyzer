@@ -4,27 +4,29 @@ import pickle
 import streamlit as st
 from dotenv import load_dotenv
 
-# LangChain Imports (2025 safe versions)
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+# LangChain Google Gemini
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+
+# Document Loading + Vector DB
 from langchain_community.document_loaders import UnstructuredURLLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from openai import OpenAIError
 
-# ----------------------------------------------------
-# Load Environment
-# ----------------------------------------------------
+# -------------------------------------------------------------------
+# Load ENV Variables
+# -------------------------------------------------------------------
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-if OPENAI_API_KEY is None:
-    st.error("⚠️ OPENAI_API_KEY is missing. Please set it in Streamlit Secrets.")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+if GOOGLE_API_KEY is None:
+    st.error("⚠️ GOOGLE_API_KEY missing! Add it in Streamlit Secrets.")
     st.stop()
 
-# ----------------------------------------------------
-# Page UI
-# ----------------------------------------------------
-st.title("📈 News Research Tool (2025 Working Version)")
+# -------------------------------------------------------------------
+# Streamlit UI
+# -------------------------------------------------------------------
+st.title("📈 News Research Tool — Gemini Powered")
 st.sidebar.title("Enter News Article URLs")
 
 urls = []
@@ -34,63 +36,51 @@ for i in range(3):
         urls.append(url.strip())
 
 process_url_clicked = st.sidebar.button("Process URLs")
-
-file_path = "faiss_store_openai.pkl"
+file_path = "faiss_store_gemini.pkl"
 status_box = st.empty()
 
-# ----------------------------------------------------
-# Initialize LLM
-# ----------------------------------------------------
-llm = ChatOpenAI(
-    temperature=0.0,
-    max_tokens=400,
-    api_key=OPENAI_API_KEY
+# -------------------------------------------------------------------
+# Gemini LLM + Embeddings
+# -------------------------------------------------------------------
+llm = ChatGoogleGenerativeAI(
+    model="gemini-1.5-flash",
+    temperature=0.2,
+    google_api_key=GOOGLE_API_KEY
 )
 
-embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
+embeddings = GoogleGenerativeAIEmbeddings(
+    model="models/text-embedding-004",
+    google_api_key=GOOGLE_API_KEY
+)
 
-# ----------------------------------------------------
-# Safe Embedding Function (Avoids Rate Limits)
-# ----------------------------------------------------
-def embed_with_retry(docs, max_attempts=5):
-    for attempt in range(max_attempts):
-        try:
-            return embeddings.embed_documents(docs)
-        except OpenAIError:
-            sleep_time = 2 ** attempt
-            status_box.text(f"⚠️ Rate limit hit. Retrying in {sleep_time} seconds...")
-            time.sleep(sleep_time)
-    raise Exception("Embedding failed after multiple retries.")
-
-# ----------------------------------------------------
-# PROCESS URLS → BUILD VECTOR STORE
-# ----------------------------------------------------
+# -------------------------------------------------------------------
+# PROCESS URLs → BUILD VECTOR DB
+# -------------------------------------------------------------------
 if process_url_clicked:
     if len(urls) == 0:
-        st.warning("⚠️ Please enter at least 1 valid URL.")
+        st.warning("⚠️ Please enter at least 1 URL.")
         st.stop()
 
-    status_box.text("🔄 Loading data from URLs...")
-
+    status_box.text("🔄 Fetching article data...")
     loader = UnstructuredURLLoader(urls=urls)
     data = loader.load()
 
-    status_box.text("✂️ Splitting text into chunks...")
+    status_box.text("✂️ Splitting text...")
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=100
     )
     docs = splitter.split_documents(data)
 
-    status_box.text("🧠 Creating embeddings (this may take 10–20 sec)...")
-
+    status_box.text("🧠 Generating Gemini Embeddings...")
     text_list = [d.page_content for d in docs]
-    vecs = embed_with_retry(text_list)
 
-    status_box.text("📦 Building FAISS vector store...")
+    # Generate all embeddings
+    vectors = embeddings.embed_documents(text_list)
 
+    status_box.text("📦 Building FAISS Vector DB...")
     vectorstore = FAISS.from_embeddings(
-        embeddings=vecs,
+        embeddings=vectors,
         metadatas=[d.metadata for d in docs],
         embedding=embeddings
     )
@@ -98,12 +88,12 @@ if process_url_clicked:
     with open(file_path, "wb") as f:
         pickle.dump(vectorstore.serialize_to_bytes(), f)
 
-    status_box.text("✅ Processing Complete! You can now ask questions.")
+    status_box.text("✅ URLs processed successfully! Ask a question below.")
 
-# ----------------------------------------------------
-# QUESTION INPUT
-# ----------------------------------------------------
-query = st.text_input("Ask a question about the processed articles:")
+# -------------------------------------------------------------------
+# QUESTION BOX
+# -------------------------------------------------------------------
+query = st.text_input("Ask a question about the articles:")
 
 if query:
     if not os.path.exists(file_path):
@@ -119,7 +109,6 @@ if query:
         allow_dangerous_deserialization=True
     )
 
-    # Retrieve relevant sections
     retriever = vectorstore.as_retriever()
     docs = retriever.get_relevant_documents(query)
 
