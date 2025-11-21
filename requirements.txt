@@ -1,11 +1,12 @@
 streamlit
 langchain
 langchain-community
+langchain-openai
+langchain-text-splitters
 openai
-python-dotenv
-requests
 faiss-cpu
 unstructured
-beautifulsoup4
-requests
+python-dotenv
 tiktoken
+pandas
+matplotlib
