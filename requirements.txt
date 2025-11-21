@@ -1,10 +1,17 @@
 streamlit==1.35.0
+
+# LangChain (stable matching)
 langchain==0.1.0
-langchain-core==0.1.0
+langchain-core>=0.1.7,<0.2
 langchain-community==0.0.20
 langchain-text-splitters==0.0.1
+
+# Google Gemini SDK (compatible)
+google-generativeai==0.3.2
+
+# LangChain Google GenAI (compatible)
 langchain-google-genai==0.0.7
-google-generativeai==0.3.2   # FIXED (Compatible)
+
 python-dotenv
 faiss-cpu
 unstructured
