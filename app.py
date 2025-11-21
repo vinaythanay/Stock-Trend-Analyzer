@@ -2,18 +2,22 @@ import os
 import streamlit as st
 import pickle
 import time
-from dotenv import load_dotenv
+
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.document_loaders import UnstructuredURLLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 
-load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 st.title("News Research Tool 📈")
 st.sidebar.title("News Article URLs")
-
+llm = ChatOpenAI(
+    temperature=0.9,
+    max_tokens=500,
+    api_key=OPENAI_API_KEY
+)
 urls = []
 for i in range(3):
     url = st.sidebar.text_input(f"URL {i+1}")
