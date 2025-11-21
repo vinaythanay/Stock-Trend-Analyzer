@@ -4,13 +4,10 @@ import pickle
 import time
 from dotenv import load_dotenv
 
-# NEW imports (updated for 2025 compatibility)
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.document_loaders import UnstructuredURLLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_community.chains import RetrievalQAWithSourcesChain
-
 
 load_dotenv()
 
@@ -27,7 +24,6 @@ file_path = "faiss_store_openai.pkl"
 
 main_placeholder = st.empty()
 
-# UPDATED: ChatOpenAI is the new standard instead of OpenAI()
 llm = ChatOpenAI(temperature=0.9, max_tokens=500)
 
 if process_url_clicked:
@@ -52,30 +48,43 @@ if process_url_clicked:
     with open(file_path, "wb") as f:
         pickle.dump(pkl, f)
 
+# ----------- QUERY SECTION -------------
 query = main_placeholder.text_input("Question:")
 
 if query:
     if os.path.exists(file_path):
         with open(file_path, "rb") as f:
             pkl = pickle.load(f)
+
             vectorstore = FAISS.deserialize_from_bytes(
                 embeddings=OpenAIEmbeddings(),
                 serialized=pkl,
                 allow_dangerous_deserialization=True
             )
 
-            chain = RetrievalQAWithSourcesChain.from_llm(
-                llm=llm,
-                retriever=vectorstore.as_retriever()
-            )
+            retriever = vectorstore.as_retriever()
+            docs = retriever.get_relevant_documents(query)
 
-            result = chain({"question": query}, return_only_outputs=True)
+            # Build answer with sources
+            context = "\n\n".join([d.page_content for d in docs])
+
+            prompt = f"""
+You are an AI news analyst. Use ONLY the following context to answer the question.
+
+Context:
+{context}
+
+Question: {query}
+
+Answer:
+"""
+
+            answer = llm.predict(prompt)
 
             st.header("Answer")
-            st.write(result["answer"])
+            st.write(answer)
 
-            sources = result.get("sources", "")
-            if sources:
-                st.subheader("Sources:")
-                for source in sources.split("\n"):
-                    st.write(source)
+            # Display sources
+            st.subheader("Sources")
+            for d in docs:
+                st.write(d.metadata.get("source", "Unknown source"))
